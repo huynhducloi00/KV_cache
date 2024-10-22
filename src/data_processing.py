@@ -3,6 +3,7 @@
 import random
 import torch
 from datasets import load_dataset
+from tqdm import trange
 
 # Wrapper for tokenized input IDs
 class TokenizerWrapper:
@@ -40,16 +41,13 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer, batch_size=1):
     return trainloader
 
 
-
-# Load and process c4 dataset
-def get_c4(nsamples, seed, seqlen, tokenizer, batch_size=1):
-    # Load train and validation datasets
+def get_c4(nsamples, seed, seqlen, tokenizer, batch_size=1, from_cache=False):
+    if from_cache:
+        return torch.load('c4_train.pt', weights_only=True)
     traindata = load_dataset('allenai/c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train')
-    # valdata = load_dataset('allenai/c4', data_files={'validation': 'en/c4-validation.00000-of-00008.json.gz'}, split='validation')
-    # Generate samples from training set
     random.seed(seed)
     trainloader = []
-    for _ in range(nsamples):
+    for _ in trange(nsamples):
         inps = torch.zeros((batch_size, seqlen)).long()
         tars = torch.zeros_like(inps)
         for b in range(batch_size):
@@ -67,12 +65,3 @@ def get_c4(nsamples, seed, seqlen, tokenizer, batch_size=1):
             tars[b] = tar[0]
         trainloader.append((inps, tars))
     return trainloader
-    # if not return_val:
-    #     return trainloader
-    # # Prepare validation dataset
-    # print("trainloader complete")
-    # valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
-    # valenc = valenc.input_ids[:, :(256 * seqlen)]
-    # valenc = TokenizerWrapper(valenc)
-    # print("valloader complete")
-    # return trainloader, valenc

@@ -1,6 +1,9 @@
 import os
+
+from arg_parser import get_parser
+from utils import set_env
+set_env(level=3)
 import sys
-import argparse
 import numpy as np
 import random
 from data_processing import get_c4, get_wikitext2
@@ -56,7 +59,7 @@ get_annotated_layers_functions = {
 mq_models = ['falcon']
 
 criterion_mse = torch.nn.MSELoss()
-scaler = torch.cuda.amp.GradScaler()
+scaler =torch.amp.GradScaler()
 
 def get_activations_layer(model, layer, dataloader, batches):
     '''
@@ -323,44 +326,7 @@ class KernelizedHeadAttention(nn.Module):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-                        prog = 'ProgramName',
-                        description = 'What the program does',
-                        epilog = 'Text at the bottom of help')
-
-    # Basic Configs
-    parser.add_argument('--save_dir', type=str, default='../checkpoints')
-    parser.add_argument('--model_name', type=str, default='llama2')
-    parser.add_argument('--model_size', type=int, default=0)
-    parser.add_argument("--device", type=str, default='cuda:0')
-    
-    # Data Collection 
-    parser.add_argument('--seq_len', type=int, default=-1) 
-    parser.add_argument('--sampling_batch_size', type=int, default=1)
-    parser.add_argument('--seqs_to_collect', type=int, default=512)
-    parser.add_argument('--half_precision', action='store_true') # QKVO will be collect in half precision if this is toggled
-    
-    # Sparse Cache 
-    parser.add_argument("--heavy_ratio", type=float, default=0.1)
-    parser.add_argument("--recent_ratio", type=float, default=0.1)
-    parser.add_argument("--fix_heavy_to_initial_tokens", action='store_true') # for Lambda masking
-
-    # Kernels
-    parser.add_argument("--ker_dim", type=int, default=8)
-    parser.add_argument("--ker_hid", type=int, default=512)
-    parser.add_argument('--dropout', type=float, default=0.3)
-    
-    # Training
-    parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--batch_size', type=int, default=2)
-
-    # Training Parallelism
-    parser.add_argument('--from_layer', type=int, default=0)
-    parser.add_argument('--to_layer', type=int, default=9999)
-
-
-    args = parser.parse_args()
+    args = get_parser().parse_args()
 
     save_dir = args.save_dir
     model_name = args.model_name
@@ -386,7 +352,7 @@ if __name__ == '__main__':
     layer_end = args.to_layer
     
     
-    device = args.device
+    device = int(args.device)
 
     assert heavy_ratio >= 0 and heavy_ratio <= 1 and recent_ratio >= 0 and recent_ratio <= 1
 
@@ -414,7 +380,7 @@ if __name__ == '__main__':
     if seq_len == -1:
         seq_len = config.max_position_embeddings
 
-    trainloader = get_c4(nsamples=batches_to_collect, seed=0, seqlen=seq_len, tokenizer=tokenizer, batch_size=sampling_batch_size)
+    trainloader = get_c4(nsamples=batches_to_collect, seed=0, seqlen=seq_len, tokenizer=tokenizer, batch_size=sampling_batch_size, from_cache=True)
     
     # debugging is faster with wt
     # trainloader = get_wikitext2(nsamples=batches_to_collect, seed=0, seqlen=seq_len, tokenizer=tokenizer, batch_size=sampling_batch_size)
@@ -456,14 +422,11 @@ if __name__ == '__main__':
             continue
         print(f'STARTING LAYER {li}')
         reset_seed()
-
+        result= model(trainloader[0][0])
         model.toggle_layer(li)
-        
-        
-        train_mses = torch.zeros(epochs)
-        val_mses = torch.zeros_like(train_mses)
 
         model = model.to(device)
+        model(trainloader[0])
         qs, ks, vs, os_ = get_activations_layer(model, li, trainloader, batches_to_collect)
         model = model.cpu()
         torch.cuda.empty_cache()
@@ -485,6 +448,8 @@ if __name__ == '__main__':
         optimizer = optim.Adam(net.parameters(), lr=lr)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
         best = float('inf')
+        train_mses = torch.zeros(epochs)
+        val_mses = torch.zeros_like(train_mses)
         for epoch in tqdm(range(epochs)):
             train_loss = train(
                 net, 

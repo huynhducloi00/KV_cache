@@ -1,7 +1,7 @@
-save_dir=llama2_7b_h2o
+save_dir=
 
 python train_kernels.py \
-    --save_dir ../checkpoints/$save_dir \
+    --save_dir checkpoints/llama2_7b_h2o \
     --model_name llama2 \
     --model_size 0 \
     --sampling_batch_size 2 \
